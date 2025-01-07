@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory
 from dotenv import load_dotenv
 import os
 import requests
@@ -130,6 +130,10 @@ def get_commit_days(username):
         return None, (len(commit_dates), sorted_monthly)
     except Exception as e:
         return f"Error: {str(e)}", (0, {})
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory('../static', 'favicon.ico')
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
