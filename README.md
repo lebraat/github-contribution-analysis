@@ -3,7 +3,7 @@
 ## 🚀 Quick Start for Everyone
 
 ### What is this?
-This is a simple web tool that helps you understand your GitHub contribution activity over the last 3 years. Whether you're a student, professional, or just curious about your coding journey, this app provides insights into your GitHub contributions.
+This is a simple web tool that helps you understand your GitHub commit activity over the last 3 years. Whether you're a student, professional, or just curious about your coding journey, this app provides insights into your GitHub commits.
 
 ### How to Use the App
 1. Visit: [https://github-contribution-analysis.vercel.app/](https://github-contribution-analysis.vercel.app/)
@@ -13,19 +13,25 @@ This is a simple web tool that helps you understand your GitHub contribution act
 ### Understanding Your Results
 
 #### Total Days with Commits
-- This number shows how many unique days you've made contributions in the last 3 years
+- This number shows how many unique days you've made commits in the last 3 years
 - Each day you made at least one commit counts, regardless of the number of commits
+- Only counts commits to repositories' default branches
+- Only includes commits where you are the author
 
 #### Monthly Commit Chart
 - The bar graph shows your commit activity by month
-- Taller bars mean more commits in that month
+- Taller bars mean more days with commits in that month
 - Helps you visualize your coding consistency and productivity patterns
 
-### 🤔 What Counts as a Contribution?
-- Commits to repositories you own or contribute to
-- Pull requests
-- Issues you've opened or commented on
-- Repository reviews
+### What's Being Counted?
+- Direct commits to repositories' default branches
+- Commits must be authored by you (not just committed by you)
+- Merge commits are included
+- Currently NOT counting:
+  - Pull requests
+  - Issues
+  - Code reviews
+  - Comments
 
 ### Tips for Interpreting Your Data
 - A high number of commit days shows consistent coding activity
@@ -39,11 +45,11 @@ This is a simple web tool that helps you understand your GitHub contribution act
 - No personal data is stored or shared
 
 ## Overview
-A web application that provides insights into a GitHub user's contributions over the last 3 years, visualizing commit activity and total contribution days.
+A web application that provides insights into a GitHub user's commits over the last 3 years, visualizing commit activity and total commit days.
 
 ## Features
 - Input any GitHub username
-- Analyze contributions from the last 3 years
+- Analyze commits from the last 3 years
 - Visualize monthly commit distribution
 - Responsive and user-friendly interface
 
@@ -146,6 +152,6 @@ MIT License
 - Added monthly contribution visualization with Chart.js
 
 ## Future Improvements
-- Add more detailed contribution statistics
+- Add more detailed commit statistics
 - Implement caching
 - Enhance error handling
