@@ -95,25 +95,31 @@
                 <canvas id="contributionChart"></canvas>
             </div>
             <script>
+                const monthlyData = JSON.parse('{{ monthly_data | tojson | safe }}');
                 const ctx = document.getElementById('contributionChart').getContext('2d');
+                const chartData = {
+                    labels: Object.keys(monthlyData),
+                    datasets: [{
+                        label: 'Contributions per Month',
+                        data: Object.values(monthlyData),
+                        backgroundColor: '#0366d6',
+                        borderColor: '#0366d6',
+                        borderWidth: 1
+                    }]
+                };
+
                 new Chart(ctx, {
                     type: 'bar',
-                    data: {
-                        labels: {{ monthly_data.keys() | list | tojson }},
-                        datasets: [{
-                            label: 'Contributions per Month',
-                            data: {{ monthly_data.values() | list | tojson }},
-                            backgroundColor: '#0366d6',
-                            borderColor: '#0366d6',
-                            borderWidth: 1
-                        }]
-                    },
+                    data: chartData,
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         scales: {
                             y: {
-                                beginAtZero: true
+                                beginAtZero: true,
+                                ticks: {
+                                    stepSize: 1
+                                }
                             }
                         }
                     }

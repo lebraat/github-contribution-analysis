@@ -116,6 +116,35 @@ MIT License
 - Check network connectivity
 - Verify GitHub username exists
 
+## 🛠️ Local Development Setup
+
+### Prerequisites
+- Python 3.7+
+- GitHub Personal Access Token with repo scope
+
+### Setup Steps
+1. Clone the repository
+2. Create a `.env` file in the root directory with:
+   ```
+   GITHUB_TOKEN=your_github_token
+   GITHUB_USERNAME=your_github_username
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Run the application:
+   ```bash
+   python app.py
+   ```
+5. Visit `http://localhost:5000` in your browser
+
+## Recent Updates
+- Fixed JavaScript/Jinja2 template integration for proper JSON parsing
+- Improved chart rendering with proper data handling
+- Enhanced error handling for GitHub API responses
+- Added monthly contribution visualization with Chart.js
+
 ## Future Improvements
 - Add more detailed contribution statistics
 - Implement caching
