@@ -2,6 +2,7 @@ import requests
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
+import re
 
 # Load environment variables
 load_dotenv()
@@ -31,6 +32,11 @@ def get_user_creation_date(username):
     query($username: String!) {
         user(login: $username) {
             createdAt
+            repositories(first: 1, orderBy: {field: CREATED_AT, direction: ASC}) {
+                nodes {
+                    createdAt
+                }
+            }
         }
     }
     '''
@@ -45,7 +51,47 @@ def get_user_creation_date(username):
         raise Exception(f"GitHub API error: {response.status_code}")
     
     data = response.json()
-    return datetime.strptime(data['data']['user']['createdAt'], "%Y-%m-%dT%H:%M:%SZ").date()
+    user_creation = datetime.strptime(data['data']['user']['createdAt'], "%Y-%m-%dT%H:%M:%SZ").date()
+    
+    # If user has repositories, use the earliest repo creation date
+    repos = data['data']['user']['repositories']['nodes']
+    if repos and repos[0]['createdAt']:
+        earliest_repo = datetime.strptime(repos[0]['createdAt'], "%Y-%m-%dT%H:%M:%SZ").date()
+        return max(user_creation, earliest_repo)
+    
+    return user_creation
+
+def is_meaningful_commit(commit_message):
+    """
+    Determine if a commit is meaningful based on its message.
+    Excludes merge commits, trivial updates, and bot-like commits.
+    """
+    if not commit_message:
+        return False
+    
+    # List of patterns to exclude
+    exclude_patterns = [
+        r'^Merge',  # Merge commits
+        r'^Bump',   # Dependency bumps
+        r'^Update',  # Very generic updates
+        r'^Add',     # Very generic additions
+        r'^Fix',     # Very generic fixes
+        r'dependabot',  # Dependabot commits
+        r'renovate',    # Renovate bot commits
+        r'^\s*$',    # Empty commit messages
+    ]
+    
+    # Convert to lowercase for case-insensitive matching
+    message_lower = commit_message.lower()
+    
+    # Check against exclude patterns
+    for pattern in exclude_patterns:
+        if re.search(pattern, message_lower):
+            return False
+    
+    # More complex meaningful commit check
+    # Require a certain level of descriptiveness
+    return len(message_lower.split()) > 3
 
 def fetch_repositories(username):
     """Fetch repositories the user has contributed to."""
@@ -64,7 +110,7 @@ def fetch_repositories(username):
             json={"query": '''
                 query($username: String!, $cursor: String) {
                     user(login: $username) {
-                        repositoriesContributedTo(first: 100, after: $cursor) {
+                        repositoriesContributedTo(first: 100, after: $cursor, contributionTypes: [COMMIT, PULL_REQUEST, REPOSITORY]) {
                             pageInfo {
                                 endCursor
                                 hasNextPage
@@ -99,7 +145,7 @@ def fetch_repositories(username):
     return repositories
 
 def fetch_commit_dates(owner, repo, username, user_creation_date):
-    """Fetch commit dates for a specific repository."""
+    """Fetch meaningful commit dates for a specific repository."""
     commit_dates = set()
     has_next_page = True
     cursor = None
@@ -108,18 +154,19 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
         variables = {
             "owner": owner,
             "repo": repo,
+            "username": username,
             "cursor": cursor
         }
 
         response = requests.post(
             GRAPHQL_URL, 
             json={"query": '''
-                query($owner: String!, $repo: String!, $cursor: String) {
+                query($owner: String!, $repo: String!, $username: String!, $cursor: String) {
                     repository(owner: $owner, name: $repo) {
                         defaultBranchRef {
                             target {
                                 ... on Commit {
-                                    history(first: 100, after: $cursor) {
+                                    history(first: 100, after: $cursor, author: {username: $username}) {
                                         pageInfo {
                                             endCursor
                                             hasNextPage
@@ -127,6 +174,7 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
                                         edges {
                                             node {
                                                 committedDate
+                                                message
                                                 author {
                                                     user {
                                                         login
@@ -155,20 +203,21 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
         
         for edge in commit_history['edges']:
             commit = edge['node']
-            if commit['author']['user'] and commit['author']['user']['login'] == username:
-                commit_date = datetime.strptime(commit['committedDate'], "%Y-%m-%dT%H:%M:%SZ").date()
-                # Only count commits after user creation
-                if commit_date >= user_creation_date:
-                    commit_dates.add(commit_date)
+            commit_date = datetime.strptime(commit['committedDate'], "%Y-%m-%dT%H:%M:%SZ").date()
+            
+            # Only count commits after user creation and with meaningful messages
+            if (commit_date >= user_creation_date and 
+                is_meaningful_commit(commit['message'])):
+                commit_dates.add(commit_date)
 
         has_next_page = commit_history['pageInfo']['hasNextPage']
         cursor = commit_history['pageInfo']['endCursor']
 
     return commit_dates
 
-def verify_github_contributions(username, threshold=1, years_back=3):
+def verify_github_contributions(username, threshold=120, years_back=3):
     """
-    Verify GitHub contributions with configurable threshold.
+    Verify GitHub contributions with Gitcoin Passport-like criteria.
     
     :param username: GitHub username to verify
     :param threshold: Minimum number of contribution days required
@@ -182,7 +231,7 @@ def verify_github_contributions(username, threshold=1, years_back=3):
         # Fetch repositories
         repositories = fetch_repositories(username)
         
-        # Collect unique commit dates
+        # Collect unique meaningful commit dates
         unique_commit_dates = set()
         for repo in repositories:
             repo_commit_dates = fetch_commit_dates(
@@ -203,7 +252,8 @@ def verify_github_contributions(username, threshold=1, years_back=3):
             'contribution_days': len(filtered_dates),
             'threshold': threshold,
             'years_back': years_back,
-            'user_creation_date': user_creation_date
+            'user_creation_date': user_creation_date,
+            'dates': sorted(filtered_dates)
         }
         
         return result
@@ -217,14 +267,17 @@ def verify_github_contributions(username, threshold=1, years_back=3):
 def main():
     """Main function to analyze GitHub contributions."""
     try:
-        # You can adjust the threshold and years as needed
-        result = verify_github_contributions(USERNAME, threshold=1, years_back=3)
+        # Verify contributions with Gitcoin Passport-like criteria
+        result = verify_github_contributions(USERNAME, threshold=120, years_back=3)
         
         if result.get('valid'):
             print(f"Verification Passed!")
             print(f"Total unique contribution days: {result['contribution_days']}")
+            print(f"First contribution date: {result['dates'][0]}")
+            print(f"Last contribution date: {result['dates'][-1]}")
         else:
             print(f"Verification Failed.")
+            print(f"Total unique contribution days: {result.get('contribution_days', 0)}")
             print(f"Error: {result.get('error', 'Did not meet contribution threshold')}")
             
     except Exception as e:
