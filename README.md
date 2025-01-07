@@ -14,18 +14,21 @@ This is a simple web tool that helps you understand your GitHub commit activity 
 
 #### Total Days with Commits
 - This number shows how many unique days you've made commits in the last 3 years
-- Each day you made at least one commit counts, regardless of the number of commits
+- If you made multiple commits on the same day, it still counts as just one commit day
 - Only counts commits to repositories' default branches
 - Only includes commits where you are the author
 
 #### Monthly Commit Chart
-- The bar graph shows your commit activity by month
-- Taller bars mean more days with commits in that month
-- Helps you visualize your coding consistency and productivity patterns
+- The bar graph shows your commit days by month
+- Each bar represents the number of unique days you made commits in that month
+- Multiple commits on the same day count as one commit day
+- Helps you visualize your coding consistency patterns
 
 ### What's Being Counted?
-- Direct commits to repositories' default branches
-- Commits must be authored by you (not just committed by you)
+- Each day where you made at least one commit counts as a "commit day"
+- Multiple commits on the same day are counted as a single commit day
+- Only counts commits to repositories' default branches
+- Only includes commits where you are the author
 - Merge commits are included
 - Currently NOT counting:
   - Pull requests

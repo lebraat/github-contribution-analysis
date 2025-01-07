@@ -44,7 +44,7 @@ def get_commit_days():
     print(f"Found {len(repos)} repositories.")
     
     commit_dates = set()
-    monthly_commits = defaultdict(int)
+    monthly_commits = defaultdict(set)
     
     for repo in repos:
         owner = repo['owner']['login']
@@ -110,7 +110,7 @@ def get_commit_days():
                         date = commit['committedDate'].split('T')[0]
                         commit_dates.add(date)
                         month = date[:7]  # YYYY-MM format
-                        monthly_commits[month] += 1
+                        monthly_commits[month].add(date)
                 
                 page_info = commit_history['pageInfo']
                 has_next_page = page_info['hasNextPage']
@@ -119,8 +119,8 @@ def get_commit_days():
                 print(f"Error processing commits for {owner}/{name}")
                 break
     
-    # Sort monthly commits by date
-    sorted_monthly = dict(sorted(monthly_commits.items()))
+    # Sort monthly commits by date and convert sets to counts
+    sorted_monthly = {month: len(days) for month, days in sorted(monthly_commits.items())}
     
     return len(commit_dates), sorted_monthly
 
