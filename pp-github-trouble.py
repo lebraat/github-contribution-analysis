@@ -3,6 +3,17 @@ from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 import re
+import time
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Disable requests library's connection pooling and caching
+requests.adapters.DEFAULT_RETRIES = 0
+requests.packages.urllib3.util.connection.HAS_IPV6 = False
+requests.packages.urllib3.disable_warnings()
 
 # Load environment variables
 load_dotenv()
@@ -20,14 +31,20 @@ if not USERNAME:
 # GraphQL API endpoint
 GRAPHQL_URL = "https://api.github.com/graphql"
 
-# Headers for the API request
+# Headers for the API request with cache-control directives
 HEADERS = {
     "Authorization": f"Bearer {GITHUB_TOKEN}",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0"
 }
 
 def get_user_creation_date(username):
     """Fetch the user's account creation date."""
+    start_time = time.time()
+    logger.info(f"Fetching user creation date for {username}")
+    
     query = '''
     query($username: String!) {
         user(login: $username) {
@@ -41,7 +58,10 @@ def get_user_creation_date(username):
     }
     '''
     
-    response = requests.post(
+    session = requests.Session()
+    session.mount('https://api.github.com', requests.adapters.HTTPAdapter(max_retries=0))
+    
+    response = session.post(
         GRAPHQL_URL, 
         json={"query": query, "variables": {"username": username}}, 
         headers=HEADERS
@@ -57,9 +77,12 @@ def get_user_creation_date(username):
     repos = data['data']['user']['repositories']['nodes']
     if repos and repos[0]['createdAt']:
         earliest_repo = datetime.strptime(repos[0]['createdAt'], "%Y-%m-%dT%H:%M:%SZ").date()
-        return max(user_creation, earliest_repo)
+        result = max(user_creation, earliest_repo)
+    else:
+        result = user_creation
     
-    return user_creation
+    logger.info(f"User creation date fetch took {time.time() - start_time:.2f} seconds")
+    return result
 
 def is_meaningful_commit(commit_message):
     """
@@ -95,9 +118,15 @@ def is_meaningful_commit(commit_message):
 
 def fetch_repositories(username):
     """Fetch repositories the user has contributed to."""
+    start_time = time.time()
+    logger.info(f"Fetching repositories for {username}")
+    
     repositories = []
     has_next_page = True
     cursor = None
+
+    session = requests.Session()
+    session.mount('https://api.github.com', requests.adapters.HTTPAdapter(max_retries=0))
 
     while has_next_page:
         variables = {
@@ -105,7 +134,7 @@ def fetch_repositories(username):
             "cursor": cursor
         }
 
-        response = requests.post(
+        response = session.post(
             GRAPHQL_URL, 
             json={"query": '''
                 query($username: String!, $cursor: String) {
@@ -142,13 +171,20 @@ def fetch_repositories(username):
         has_next_page = repo_data['pageInfo']['hasNextPage']
         cursor = repo_data['pageInfo']['endCursor']
 
+    logger.info(f"Repository fetch for {username} took {time.time() - start_time:.2f} seconds")
     return repositories
 
 def fetch_commit_dates(owner, repo, username, user_creation_date):
     """Fetch meaningful commit dates for a specific repository."""
+    start_time = time.time()
+    logger.info(f"Fetching commit dates for {owner}/{repo}")
+    
     commit_dates = set()
     has_next_page = True
     cursor = None
+
+    session = requests.Session()
+    session.mount('https://api.github.com', requests.adapters.HTTPAdapter(max_retries=0))
 
     while has_next_page:
         variables = {
@@ -158,7 +194,7 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
             "cursor": cursor
         }
 
-        response = requests.post(
+        response = session.post(
             GRAPHQL_URL, 
             json={"query": '''
                 query($owner: String!, $repo: String!, $username: String!, $cursor: String) {
@@ -213,6 +249,7 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
         has_next_page = commit_history['pageInfo']['hasNextPage']
         cursor = commit_history['pageInfo']['endCursor']
 
+    logger.info(f"Commit dates fetch for {owner}/{repo} took {time.time() - start_time:.2f} seconds")
     return commit_dates
 
 def verify_github_contributions(username, threshold=120, years_back=3):
@@ -224,6 +261,9 @@ def verify_github_contributions(username, threshold=120, years_back=3):
     :param years_back: Number of years to look back
     :return: Verification result dictionary
     """
+    start_time = time.time()
+    logger.info(f"Starting contribution verification for {username}")
+    
     try:
         # Get user creation date
         user_creation_date = get_user_creation_date(username)
@@ -256,9 +296,11 @@ def verify_github_contributions(username, threshold=120, years_back=3):
             'dates': sorted(filtered_dates)
         }
         
+        logger.info(f"Contribution verification for {username} completed in {time.time() - start_time:.2f} seconds")
         return result
 
     except Exception as e:
+        logger.error(f"Error in contribution verification: {e}")
         return {
             'valid': False,
             'error': str(e)
