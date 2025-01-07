@@ -12,7 +12,7 @@ def get_commit_days(username):
     token = os.getenv('GITHUB_TOKEN')
     
     if not token:
-        return "GitHub token not found in environment variables", {}
+        return "GitHub token not found in environment variables", None
     
     headers = {
         'Authorization': f'Bearer {token}',
@@ -23,11 +23,14 @@ def get_commit_days(username):
     query = '''
     query($username: String!) {
         user(login: $username) {
-            repositories(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
-                nodes {
-                    name
-                    owner {
-                        login
+            contributionsCollection {
+                contributionCalendar {
+                    totalContributions
+                    weeks {
+                        contributionDays {
+                            contributionCount
+                            date
+                        }
                     }
                 }
             }
@@ -38,98 +41,39 @@ def get_commit_days(username):
     try:
         response = requests.post('https://api.github.com/graphql', 
                                json={'query': query, 'variables': {'username': username}}, 
-                               headers=headers)
+                               headers=headers,
+                               timeout=5)
         
         if response.status_code != 200:
-            return f"GitHub API Error: {response.status_code}", {}
+            return f"GitHub API Error: {response.status_code}", None
             
         data = response.json()
         if 'errors' in data:
-            return f"GitHub API Error: {data['errors'][0]['message']}", {}
+            return f"GitHub API Error: {data['errors'][0]['message']}", None
             
         if not data.get('data', {}).get('user'):
-            return f"User '{username}' not found", {}
+            return f"User '{username}' not found", None
             
-        repos = data['data']['user']['repositories']['nodes']
-        
-        commit_dates = set()
+        contributions = data['data']['user']['contributionsCollection']['contributionCalendar']
+        total_days = 0
         monthly_commits = defaultdict(int)
         
-        for repo in repos:
-            owner = repo['owner']['login']
-            name = repo['name']
-            
-            # Query to get commit history
-            commit_query = '''
-            query($owner: String!, $name: String!, $cursor: String) {
-                repository(owner: $owner, name: $name) {
-                    defaultBranchRef {
-                        target {
-                            ... on Commit {
-                                history(first: 100, after: $cursor) {
-                                    pageInfo {
-                                        endCursor
-                                        hasNextPage
-                                    }
-                                    edges {
-                                        node {
-                                            committedDate
-                                            author {
-                                                user {
-                                                    login
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            '''
-            
-            has_next_page = True
-            cursor = None
-            
-            while has_next_page:
-                variables = {
-                    'owner': owner,
-                    'name': name,
-                    'cursor': cursor
-                }
-                
-                commit_response = requests.post('https://api.github.com/graphql',
-                                             json={'query': commit_query, 'variables': variables},
-                                             headers=headers)
-                
-                if commit_response.status_code != 200:
-                    continue
-                    
-                result = commit_response.json()
-                
-                try:
-                    commit_history = result['data']['repository']['defaultBranchRef']['target']['history']
-                    for edge in commit_history['edges']:
-                        commit = edge['node']
-                        if commit['author']['user'] and commit['author']['user']['login'] == username:
-                            date = commit['committedDate'].split('T')[0]
-                            commit_dates.add(date)
-                            month = date[:7]  # YYYY-MM format
-                            monthly_commits[month] += 1
-                    
-                    page_info = commit_history['pageInfo']
-                    has_next_page = page_info['hasNextPage']
-                    cursor = page_info['endCursor']
-                except (KeyError, TypeError):
-                    has_next_page = False
+        for week in contributions['weeks']:
+            for day in week['contributionDays']:
+                if day['contributionCount'] > 0:
+                    total_days += 1
+                    date = datetime.strptime(day['date'], '%Y-%m-%d')
+                    month = date.strftime('%Y-%m')
+                    monthly_commits[month] += day['contributionCount']
         
         # Sort monthly commits by date
         sorted_monthly = dict(sorted(monthly_commits.items()))
         
-        return None, (len(commit_dates), sorted_monthly)
+        return None, (total_days, sorted_monthly)
+    except requests.Timeout:
+        return "GitHub API request timed out. Please try again.", None
     except Exception as e:
-        return f"Error: {str(e)}", (0, {})
+        return f"Error: {str(e)}", None
 
 @app.route('/favicon.ico')
 def favicon():
@@ -145,7 +89,9 @@ def index():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         if username:
-            error, (total_days, monthly_data) = get_commit_days(username)
+            error, result = get_commit_days(username)
+            if result:
+                total_days, monthly_data = result
     
     return render_template('index.html', 
                          username=username,
@@ -153,6 +99,5 @@ def index():
                          monthly_data=monthly_data,
                          error=error)
 
-# For local development
 if __name__ == '__main__':
     app.run(debug=True)
