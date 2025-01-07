@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from dotenv import load_dotenv
 import os
 import requests
@@ -8,9 +8,8 @@ from collections import defaultdict
 app = Flask(__name__, template_folder='../templates')
 load_dotenv()
 
-def get_commit_days():
+def get_commit_days(username):
     token = os.getenv('GITHUB_TOKEN')
-    username = os.getenv('GITHUB_USERNAME', 'lebraat')
     
     if not token:
         return "GitHub token not found in environment variables", {}
@@ -43,8 +42,15 @@ def get_commit_days():
         
         if response.status_code != 200:
             return f"GitHub API Error: {response.status_code}", {}
-        
-        repos = response.json()['data']['user']['repositories']['nodes']
+            
+        data = response.json()
+        if 'errors' in data:
+            return f"GitHub API Error: {data['errors'][0]['message']}", {}
+            
+        if not data.get('data', {}).get('user'):
+            return f"User '{username}' not found", {}
+            
+        repos = data['data']['user']['repositories']['nodes']
         
         commit_dates = set()
         monthly_commits = defaultdict(int)
@@ -121,14 +127,27 @@ def get_commit_days():
         # Sort monthly commits by date
         sorted_monthly = dict(sorted(monthly_commits.items()))
         
-        return len(commit_dates), sorted_monthly
+        return None, (len(commit_dates), sorted_monthly)
     except Exception as e:
-        return f"Error: {str(e)}", {}
+        return f"Error: {str(e)}", (0, {})
 
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    total_days, monthly_data = get_commit_days()
-    return render_template('index.html', total_days=total_days, monthly_data=monthly_data)
+    error = None
+    total_days = 0
+    monthly_data = {}
+    username = None
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        if username:
+            error, (total_days, monthly_data) = get_commit_days(username)
+    
+    return render_template('index.html', 
+                         username=username,
+                         total_days=total_days, 
+                         monthly_data=monthly_data,
+                         error=error)
 
 # For local development
 if __name__ == '__main__':
