@@ -8,22 +8,7 @@ from collections import defaultdict
 app = Flask(__name__, template_folder='../templates')
 load_dotenv()
 
-def get_commit_days(username):
-    token = os.getenv('GITHUB_TOKEN')
-    
-    if not token:
-        return "GitHub token not found in environment variables", None
-    
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json',
-    }
-    
-    # Calculate dates for the last 3 years
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=3*365)
-    
-    # GraphQL query to get user's contributions for the last 3 years
+def get_contributions_for_year(username, start_date, end_date, headers):
     query = '''
     query($username: String!, $from: DateTime!, $to: DateTime!) {
         user(login: $username) {
@@ -42,40 +27,61 @@ def get_commit_days(username):
     }
     '''
     
-    try:
-        response = requests.post('https://api.github.com/graphql', 
-                               json={
-                                   'query': query,
-                                   'variables': {
-                                       'username': username,
-                                       'from': start_date.strftime('%Y-%m-%dT00:00:00Z'),
-                                       'to': end_date.strftime('%Y-%m-%dT23:59:59Z')
-                                   }
-                               }, 
-                               headers=headers,
-                               timeout=5)
+    response = requests.post('https://api.github.com/graphql', 
+                           json={
+                               'query': query,
+                               'variables': {
+                                   'username': username,
+                                   'from': start_date.strftime('%Y-%m-%dT00:00:00Z'),
+                                   'to': end_date.strftime('%Y-%m-%dT23:59:59Z')
+                               }
+                           }, 
+                           headers=headers,
+                           timeout=5)
+    
+    if response.status_code != 200:
+        raise Exception(f"GitHub API Error: {response.status_code}")
         
-        if response.status_code != 200:
-            return f"GitHub API Error: {response.status_code}", None
-            
-        data = response.json()
-        if 'errors' in data:
-            return f"GitHub API Error: {data['errors'][0]['message']}", None
-            
-        if not data.get('data', {}).get('user'):
-            return f"User '{username}' not found", None
-            
-        contributions = data['data']['user']['contributionsCollection']['contributionCalendar']
+    data = response.json()
+    if 'errors' in data:
+        raise Exception(f"GitHub API Error: {data['errors'][0]['message']}")
+        
+    if not data.get('data', {}).get('user'):
+        raise Exception(f"User '{username}' not found")
+        
+    return data['data']['user']['contributionsCollection']['contributionCalendar']
+
+def get_commit_days(username):
+    token = os.getenv('GITHUB_TOKEN')
+    
+    if not token:
+        return "GitHub token not found in environment variables", None
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json',
+    }
+    
+    try:
+        # Calculate date ranges for the last 3 years
+        end_date = datetime.now()
         total_days = 0
         monthly_commits = defaultdict(int)
         
-        for week in contributions['weeks']:
-            for day in week['contributionDays']:
-                if day['contributionCount'] > 0:
-                    total_days += 1
-                    date = datetime.strptime(day['date'], '%Y-%m-%d')
-                    month = date.strftime('%Y-%m')
-                    monthly_commits[month] += day['contributionCount']
+        # Query each year separately
+        for year in range(3):
+            year_end = end_date - timedelta(days=365 * year)
+            year_start = year_end - timedelta(days=365)
+            
+            contributions = get_contributions_for_year(username, year_start, year_end, headers)
+            
+            for week in contributions['weeks']:
+                for day in week['contributionDays']:
+                    if day['contributionCount'] > 0:
+                        total_days += 1
+                        date = datetime.strptime(day['date'], '%Y-%m-%d')
+                        month = date.strftime('%Y-%m')
+                        monthly_commits[month] += day['contributionCount']
         
         # Sort monthly commits by date
         sorted_monthly = dict(sorted(monthly_commits.items()))
@@ -84,7 +90,7 @@ def get_commit_days(username):
     except requests.Timeout:
         return "GitHub API request timed out. Please try again.", None
     except Exception as e:
-        return f"Error: {str(e)}", None
+        return str(e), None
 
 @app.route('/favicon.ico')
 def favicon():
