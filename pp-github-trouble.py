@@ -8,10 +8,13 @@ load_dotenv()
 
 # GitHub API Token and Username from environment variables
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
-USERNAME = os.getenv('GITHUB_USERNAME', 'lebraat')  # Default to 'lebraat' if not set
+USERNAME = os.getenv('GITHUB_USERNAME')
 
 if not GITHUB_TOKEN:
     raise ValueError("Please set GITHUB_TOKEN environment variable")
+
+if not USERNAME:
+    raise ValueError("Please set GITHUB_USERNAME environment variable")
 
 # GraphQL API endpoint
 GRAPHQL_URL = "https://api.github.com/graphql"
@@ -73,64 +76,96 @@ query($owner: String!, $repo: String!, $cursor: String) {
 """
 
 def fetch_repositories(username):
+    """Fetch repositories the user has contributed to."""
     repositories = []
+    has_next_page = True
     cursor = None
 
-    while True:
-        variables = {"username": username, "cursor": cursor}
-        response = requests.post(GRAPHQL_URL, json={"query": REPO_QUERY, "variables": variables}, headers=HEADERS)
+    while has_next_page:
+        variables = {
+            "username": username,
+            "cursor": cursor
+        }
+
+        response = requests.post(
+            GRAPHQL_URL, 
+            json={"query": REPO_QUERY, "variables": variables}, 
+            headers=HEADERS
+        )
+
+        if response.status_code != 200:
+            raise Exception(f"GitHub API error: {response.status_code}")
+
         data = response.json()
+        if 'errors' in data:
+            raise Exception(f"GitHub API error: {data['errors']}")
 
-        repos = data["data"]["user"]["repositoriesContributedTo"]["nodes"]
-        repositories.extend(repos)
+        repo_data = data['data']['user']['repositoriesContributedTo']
+        repositories.extend(repo_data['nodes'])
 
-        if not data["data"]["user"]["repositoriesContributedTo"]["pageInfo"]["hasNextPage"]:
-            break
-        cursor = data["data"]["user"]["repositoriesContributedTo"]["pageInfo"]["endCursor"]
+        has_next_page = repo_data['pageInfo']['hasNextPage']
+        cursor = repo_data['pageInfo']['endCursor']
 
     return repositories
 
 def fetch_commit_dates(owner, repo, username):
+    """Fetch commit dates for a specific repository."""
     commit_dates = set()
+    has_next_page = True
     cursor = None
 
-    while True:
-        variables = {"owner": owner, "repo": repo, "cursor": cursor}
-        response = requests.post(GRAPHQL_URL, json={"query": COMMIT_QUERY, "variables": variables}, headers=HEADERS)
-        print(f"API Response for {owner}/{repo}:", response.json())
+    while has_next_page:
+        variables = {
+            "owner": owner,
+            "repo": repo,
+            "cursor": cursor
+        }
 
-        commits = response.json()["data"]["repository"]["defaultBranchRef"]["target"]["history"]["edges"]
-        for commit in commits:
-            # Only count commits by the specified user
-            author_login = commit["node"]["author"]["user"]["login"] if commit["node"]["author"]["user"] else None
-            if author_login == username:
-                date_str = commit["node"]["committedDate"]
-                date = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%SZ").date()
-                commit_dates.add(date)
+        response = requests.post(
+            GRAPHQL_URL, 
+            json={"query": COMMIT_QUERY, "variables": variables}, 
+            headers=HEADERS
+        )
 
-        if not response.json()["data"]["repository"]["defaultBranchRef"]["target"]["history"]["pageInfo"]["hasNextPage"]:
-            break
-        cursor = response.json()["data"]["repository"]["defaultBranchRef"]["target"]["history"]["pageInfo"]["endCursor"]
+        if response.status_code != 200:
+            raise Exception(f"GitHub API error: {response.status_code}")
+
+        data = response.json()
+        if 'errors' in data:
+            raise Exception(f"GitHub API error: {data['errors']}")
+
+        commit_history = data['data']['repository']['defaultBranchRef']['target']['history']
+        
+        for edge in commit_history['edges']:
+            commit = edge['node']
+            if commit['author']['user'] and commit['author']['user']['login'] == username:
+                commit_dates.add(commit['committedDate'].split('T')[0])
+
+        has_next_page = commit_history['pageInfo']['hasNextPage']
+        cursor = commit_history['pageInfo']['endCursor']
 
     return commit_dates
 
 def main():
-    # Step 1: Get the list of repositories the user contributed to
-    repositories = fetch_repositories(USERNAME)
-    print(f"Found {len(repositories)} repositories.")
+    """Main function to analyze GitHub contributions."""
+    try:
+        # Fetch repositories
+        repositories = fetch_repositories(USERNAME)
+        
+        # Collect unique commit dates
+        unique_commit_dates = set()
+        for repo in repositories:
+            repo_commit_dates = fetch_commit_dates(repo['owner']['login'], repo['name'], USERNAME)
+            unique_commit_dates.update(repo_commit_dates)
+        
+        # Print results
+        print(f"Total unique days with commits: {len(unique_commit_dates)}")
+        print("Commit dates:")
+        for date in sorted(unique_commit_dates):
+            print(date)
 
-    # Step 2: Get the unique commit dates for each repository
-    unique_dates = set()
-
-    for repo in repositories:
-        owner = repo["owner"]["login"]
-        name = repo["name"]
-        print(f"Fetching commits for {owner}/{name}...")
-        commit_dates = fetch_commit_dates(owner, name, USERNAME)
-        unique_dates.update(commit_dates)
-
-    # Step 3: Output the total number of unique commit days
-    print(f"Total unique commit days: {len(unique_dates)}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     main()
