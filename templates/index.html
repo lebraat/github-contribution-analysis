@@ -4,10 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitHub Contribution Analysis</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            font-family: Arial, sans-serif;
             max-width: 800px;
             margin: 0 auto;
             padding: 20px;
@@ -16,121 +17,111 @@
         .container {
             background-color: white;
             padding: 20px;
-            border-radius: 10px;
+            border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         h1 {
             color: #333;
             text-align: center;
-            margin-bottom: 30px;
         }
-        .stats {
-            text-align: center;
-            font-size: 1.2em;
-            margin-bottom: 30px;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-        }
-        .chart-container {
-            margin-top: 30px;
-            {% if not username %}
-            display: none;
-            {% endif %}
-        }
-        .form-container {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .input-group {
+        .form-group {
             margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
         }
         input[type="text"] {
-            padding: 10px;
+            padding: 8px;
             font-size: 16px;
             border: 1px solid #ddd;
             border-radius: 4px;
             width: 200px;
-            margin-right: 10px;
         }
         button {
-            padding: 10px 20px;
+            padding: 8px 16px;
             font-size: 16px;
             background-color: #0366d6;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            transition: background-color 0.2s;
         }
         button:hover {
             background-color: #0255b3;
         }
+        button.clear {
+            background-color: #dc3545;
+        }
+        button.clear:hover {
+            background-color: #c82333;
+        }
         .error {
             color: #dc3545;
+            text-align: center;
             margin-top: 10px;
+        }
+        .result {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .chart-container {
+            margin-top: 20px;
+            height: 400px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>GitHub Contribution Analysis</h1>
+        <form method="post">
+            <div class="form-group">
+                <input type="text" id="username" name="username" placeholder="Enter GitHub username" value="{{ username if username else '' }}">
+                <button type="submit">Analyze</button>
+                <button type="submit" name="clear" class="clear">Clear</button>
+            </div>
+        </form>
         
-        <div class="form-container">
-            <form method="POST" action="/">
-                <div class="input-group">
-                    <input type="text" name="username" placeholder="Enter GitHub username" value="{{ username if username }}" required>
-                    <button type="submit">Analyze</button>
-                </div>
-                {% if error %}
-                <div class="error">{{ error }}</div>
-                {% endif %}
-            </form>
-        </div>
-
-        {% if username and not error %}
-        <div class="stats">
-            Contributions for <strong>{{ username }}</strong> (Last 3 Years)<br>
-            Total Days with Commits: <strong>{{ total_days }}</strong>
-        </div>
-        <div class="chart-container">
-            <canvas id="monthlyChart"></canvas>
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        
+        {% if submitted and not error %}
+        <div class="result">
+            <h2>Results for {{ username }}</h2>
+            <p>Total days with contributions in the last 3 years: {{ total_days }}</p>
+            {% if monthly_data %}
+            <div class="chart-container">
+                <canvas id="contributionChart"></canvas>
+            </div>
+            <script>
+                const ctx = document.getElementById('contributionChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: {{ monthly_data.keys() | list | tojson }},
+                        datasets: [{
+                            label: 'Contributions per Month',
+                            data: {{ monthly_data.values() | list | tojson }},
+                            backgroundColor: '#0366d6',
+                            borderColor: '#0366d6',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            </script>
+            {% endif %}
         </div>
         {% endif %}
     </div>
-
-    {% if monthly_data %}
-    <script>
-        const monthlyData = {{ monthly_data | tojson }};
-        const labels = Object.keys(monthlyData);
-        const data = Object.values(monthlyData);
-
-        const ctx = document.getElementById('monthlyChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Commits per Month',
-                    data: data,
-                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                    borderColor: 'rgba(75, 192, 192, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            stepSize: 1
-                        }
-                    }
-                }
-            }
-        });
-    </script>
-    {% endif %}
 </body>
 </html>

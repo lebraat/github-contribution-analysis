@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_from_directory
+from flask import Flask, render_template, request, send_from_directory, redirect, url_for
 from dotenv import load_dotenv
 import os
 import requests
@@ -66,6 +66,9 @@ def get_commit_days(username):
     headers = {
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
     }
     
     try:
@@ -110,11 +113,22 @@ def index():
     username = None
     
     if request.method == 'POST':
+        if 'clear' in request.form:
+            # If clear button was clicked, redirect to GET request
+            return redirect(url_for('index'))
+            
         username = request.form.get('username', '').strip()
         if username:
             error, result = get_commit_days(username)
             if result:
                 total_days, monthly_data = result
+                # Redirect after successful form submission to prevent resubmission
+                return render_template('index.html', 
+                                    username=username,
+                                    total_days=total_days, 
+                                    monthly_data=monthly_data,
+                                    error=error,
+                                    submitted=True)
         else:
             error = "Username must be provided"
     
@@ -122,7 +136,8 @@ def index():
                          username=username,
                          total_days=total_days, 
                          monthly_data=monthly_data,
-                         error=error)
+                         error=error,
+                         submitted=False)
 
 if __name__ == '__main__':
     app.run(debug=True)
