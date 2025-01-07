@@ -9,6 +9,9 @@ app = Flask(__name__, template_folder='../templates')
 load_dotenv()
 
 def get_contributions_for_year(username, start_date, end_date, headers):
+    if not username:
+        raise ValueError("Username must be provided")
+
     query = '''
     query($username: String!, $from: DateTime!, $to: DateTime!) {
         user(login: $username) {
@@ -52,6 +55,9 @@ def get_contributions_for_year(username, start_date, end_date, headers):
     return data['data']['user']['contributionsCollection']['contributionCalendar']
 
 def get_commit_days(username):
+    if not username:
+        return "Username must be provided", None
+
     token = os.getenv('GITHUB_TOKEN')
     
     if not token:
@@ -109,6 +115,8 @@ def index():
             error, result = get_commit_days(username)
             if result:
                 total_days, monthly_data = result
+        else:
+            error = "Username must be provided"
     
     return render_template('index.html', 
                          username=username,
