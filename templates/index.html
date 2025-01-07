@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub Contribution Analysis</title>
+    <title>GitHub Commit History</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -73,7 +73,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>GitHub Contribution Analysis</h1>
+        <h1>GitHub Commit History</h1>
         <form method="post">
             <div class="form-group">
                 <input type="text" id="username" name="username" placeholder="Enter GitHub username" value="{{ username if username else '' }}">
@@ -89,7 +89,7 @@
         {% if submitted and not error %}
         <div class="result">
             <h2>Results for {{ username }}</h2>
-            <p>Total days with contributions in the last 3 years: {{ total_days }}</p>
+            <p>Total days with commits in the last 3 years: {{ total_days }}</p>
             {% if monthly_data %}
             <div class="chart-container">
                 <canvas id="contributionChart"></canvas>
@@ -100,7 +100,7 @@
                 const chartData = {
                     labels: Object.keys(monthlyData),
                     datasets: [{
-                        label: 'Contributions per Month',
+                        label: 'Commit Days per Month',
                         data: Object.values(monthlyData),
                         backgroundColor: '#0366d6',
                         borderColor: '#0366d6',

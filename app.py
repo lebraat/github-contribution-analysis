@@ -45,6 +45,7 @@ def get_commit_days():
     
     commit_dates = set()
     monthly_commits = defaultdict(set)
+    commit_details = defaultdict(list)  # For debugging: store all commits per day
     
     for repo in repos:
         owner = repo['owner']['login']
@@ -57,7 +58,7 @@ def get_commit_days():
                 defaultBranchRef {
                     target {
                         ... on Commit {
-                            history(first: 100, after: $cursor) {
+                            history(first: 100, after: $cursor, since: "2022-01-07T00:00:00Z") {
                                 pageInfo {
                                     endCursor
                                     hasNextPage
@@ -70,6 +71,7 @@ def get_commit_days():
                                                 login
                                             }
                                         }
+                                        message
                                     }
                                 }
                             }
@@ -100,7 +102,6 @@ def get_commit_days():
                 break
                 
             result = commit_response.json()
-            print("API Response for {}/{}: {}".format(owner, name, result))
             
             try:
                 commit_history = result['data']['repository']['defaultBranchRef']['target']['history']
@@ -108,16 +109,29 @@ def get_commit_days():
                     commit = edge['node']
                     if commit['author']['user'] and commit['author']['user']['login'] == username:
                         date = commit['committedDate'].split('T')[0]
+                        message = commit['message']
                         commit_dates.add(date)
                         month = date[:7]  # YYYY-MM format
                         monthly_commits[month].add(date)
+                        commit_details[date].append(f"{message[:50]}... in {owner}/{name}")
                 
                 page_info = commit_history['pageInfo']
                 has_next_page = page_info['hasNextPage']
                 cursor = page_info['endCursor']
-            except (KeyError, TypeError):
-                print(f"Error processing commits for {owner}/{name}")
+            except (KeyError, TypeError) as e:
+                print(f"Error processing commits for {owner}/{name}: {str(e)}")
                 break
+    
+    # Debug output
+    print("\nDetailed commit information:")
+    for date, commits in sorted(commit_details.items()):
+        print(f"\n{date} ({len(commits)} commits):")
+        for commit in commits:
+            print(f"  - {commit}")
+    
+    print("\nMonthly unique commit days:")
+    for month, days in sorted(monthly_commits.items()):
+        print(f"{month}: {len(days)} days, dates: {sorted(days)}")
     
     # Sort monthly commits by date and convert sets to counts
     sorted_monthly = {month: len(days) for month, days in sorted(monthly_commits.items())}
@@ -130,4 +144,4 @@ def index():
     return render_template('index.html', total_days=total_days, monthly_data=monthly_data)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
