@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, send_from_directory
 from dotenv import load_dotenv
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 
 app = Flask(__name__, template_folder='../templates')
@@ -19,11 +19,15 @@ def get_commit_days(username):
         'Content-Type': 'application/json',
     }
     
-    # GraphQL query to get user's repositories
+    # Calculate dates for the last 3 years
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=3*365)
+    
+    # GraphQL query to get user's contributions for the last 3 years
     query = '''
-    query($username: String!) {
+    query($username: String!, $from: DateTime!, $to: DateTime!) {
         user(login: $username) {
-            contributionsCollection {
+            contributionsCollection(from: $from, to: $to) {
                 contributionCalendar {
                     totalContributions
                     weeks {
@@ -40,7 +44,14 @@ def get_commit_days(username):
     
     try:
         response = requests.post('https://api.github.com/graphql', 
-                               json={'query': query, 'variables': {'username': username}}, 
+                               json={
+                                   'query': query,
+                                   'variables': {
+                                       'username': username,
+                                       'from': start_date.strftime('%Y-%m-%dT00:00:00Z'),
+                                       'to': end_date.strftime('%Y-%m-%dT23:59:59Z')
+                                   }
+                               }, 
                                headers=headers,
                                timeout=5)
         
