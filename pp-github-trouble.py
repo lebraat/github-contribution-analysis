@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -163,18 +164,20 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
         response = session.post(
             GRAPHQL_URL, 
             json={"query": '''
-                query($owner: String!, $repo: String!, $username: String!, $cursor: String) {
-                    repository(owner: $owner, name: $repo) {
-                        createdAt
-                        object(expression: "HEAD") {
-                            ... on Commit {
-                                history(first: 100, after: $cursor, author: {username: $username}) {
+                query($username: String!, $cursor: String) {
+                    user(login: $username) {
+                        contributionsCollection {
+                            commitContributionsByRepository {
+                                repository {
+                                    createdAt
+                                }
+                                contributions(first: 100, after: $cursor) {
                                     pageInfo {
                                         endCursor
                                         hasNextPage
                                     }
                                     nodes {
-                                        committedDate
+                                        occurredAt
                                     }
                                 }
                             }
@@ -192,19 +195,22 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
         if 'errors' in data:
             raise Exception(f"GitHub API error: {data['errors']}")
 
-        repo_created_at = datetime.strptime(data['data']['repository']['createdAt'], "%Y-%m-%dT%H:%M:%SZ")
-        commit_history = data['data']['repository']['object']['history']
+        contributions = data['data']['user']['contributionsCollection']['commitContributionsByRepository']
         
-        for node in commit_history['nodes']:
-            commit_date = datetime.strptime(node['committedDate'], "%Y-%m-%dT%H:%M:%SZ")
+        for repo_contributions in contributions:
+            repo_created_at = datetime.strptime(repo_contributions['repository']['createdAt'], "%Y-%m-%dT%H:%M:%SZ")
             
-            # Only count commits after both user creation and repo creation
-            if (commit_date.date() >= user_creation_date and 
-                commit_date >= repo_created_at):
-                commit_dates.add(commit_date.strftime("%Y-%m-%d"))  # Use consistent date string format
+            for node in repo_contributions['contributions']['nodes']:
+                commit_date = datetime.strptime(node['occurredAt'], "%Y-%m-%dT%H:%M:%SZ")
+                
+                # Only count commits after both user creation and repo creation
+                if (commit_date.date() >= user_creation_date and 
+                    commit_date >= repo_created_at):
+                    commit_dates.add(commit_date.strftime("%Y-%m-%d"))
 
-        has_next_page = commit_history['pageInfo']['hasNextPage']
-        cursor = commit_history['pageInfo']['endCursor']
+            page_info = repo_contributions['contributions']['pageInfo']
+            has_next_page = page_info['hasNextPage']
+            cursor = page_info['endCursor']
 
     logger.info(f"Commit dates fetch for {owner}/{repo} took {time.time() - start_time:.2f} seconds")
     return commit_dates
@@ -225,32 +231,67 @@ def verify_github_contributions(username, threshold=120, years_back=3):
         # Get user creation date
         user_creation_date = get_user_creation_date(username)
         
-        # Fetch repositories
-        repositories = fetch_repositories(username)
+        # Use a single GraphQL query to get all contributions
+        session = requests.Session()
+        session.mount('https://api.github.com', requests.adapters.HTTPAdapter(max_retries=0))
         
-        # Collect unique meaningful commit dates
+        cutoff_date = datetime.now() - timedelta(days=years_back * 365)
+        
+        response = session.post(
+            GRAPHQL_URL,
+            json={"query": '''
+                query($username: String!, $from: DateTime!) {
+                    user(login: $username) {
+                        contributionsCollection(from: $from) {
+                            commitContributionsByRepository {
+                                repository {
+                                    createdAt
+                                }
+                                contributions(first: 100) {
+                                    nodes {
+                                        occurredAt
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ''', "variables": {
+                "username": username,
+                "from": cutoff_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+            }},
+            headers=HEADERS
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"GitHub API error: {response.status_code}")
+            
+        data = response.json()
+        if 'errors' in data:
+            raise Exception(f"GitHub API error: {data['errors']}")
+            
         unique_commit_dates = set()
-        for repo in repositories:
-            repo_commit_dates = fetch_commit_dates(
-                repo['owner']['login'], 
-                repo['name'], 
-                username, 
-                user_creation_date
-            )
-            unique_commit_dates.update(repo_commit_dates)
+        contributions = data['data']['user']['contributionsCollection']['commitContributionsByRepository']
         
-        # Filter dates within the specified years
-        cutoff_date = datetime.now().date() - timedelta(days=years_back * 365)
-        filtered_dates = {date for date in unique_commit_dates if datetime.strptime(date, "%Y-%m-%d").date() >= cutoff_date}
+        for repo_contributions in contributions:
+            repo_created_at = datetime.strptime(repo_contributions['repository']['createdAt'], "%Y-%m-%dT%H:%M:%SZ")
+            
+            for node in repo_contributions['contributions']['nodes']:
+                commit_date = datetime.strptime(node['occurredAt'], "%Y-%m-%dT%H:%M:%SZ")
+                
+                # Only count commits after both user creation and repo creation
+                if (commit_date.date() >= user_creation_date and 
+                    commit_date >= repo_created_at):
+                    unique_commit_dates.add(commit_date.strftime("%Y-%m-%d"))
         
         # Prepare verification result
         result = {
-            'valid': len(filtered_dates) >= threshold,
-            'contribution_days': len(filtered_dates),
+            'valid': len(unique_commit_dates) >= threshold,
+            'contribution_days': len(unique_commit_dates),
             'threshold': threshold,
             'years_back': years_back,
             'user_creation_date': user_creation_date,
-            'dates': sorted(filtered_dates)
+            'dates': sorted(list(unique_commit_dates))
         }
         
         logger.info(f"Contribution verification for {username} completed in {time.time() - start_time:.2f} seconds")
