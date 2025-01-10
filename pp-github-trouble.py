@@ -2,8 +2,6 @@ import requests
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
-import re
-import time
 import logging
 
 # Configure logging
@@ -84,38 +82,6 @@ def get_user_creation_date(username):
     logger.info(f"User creation date fetch took {time.time() - start_time:.2f} seconds")
     return result
 
-def is_meaningful_commit(commit_message):
-    """
-    Determine if a commit is meaningful based on its message.
-    Excludes merge commits, trivial updates, and bot-like commits.
-    """
-    if not commit_message:
-        return False
-    
-    # List of patterns to exclude
-    exclude_patterns = [
-        r'^Merge',  # Merge commits
-        r'^Bump',   # Dependency bumps
-        r'^Update',  # Very generic updates
-        r'^Add',     # Very generic additions
-        r'^Fix',     # Very generic fixes
-        r'dependabot',  # Dependabot commits
-        r'renovate',    # Renovate bot commits
-        r'^\s*$',    # Empty commit messages
-    ]
-    
-    # Convert to lowercase for case-insensitive matching
-    message_lower = commit_message.lower()
-    
-    # Check against exclude patterns
-    for pattern in exclude_patterns:
-        if re.search(pattern, message_lower):
-            return False
-    
-    # More complex meaningful commit check
-    # Require a certain level of descriptiveness
-    return len(message_lower.split()) > 3
-
 def fetch_repositories(username):
     """Fetch repositories the user has contributed to."""
     start_time = time.time()
@@ -175,7 +141,7 @@ def fetch_repositories(username):
     return repositories
 
 def fetch_commit_dates(owner, repo, username, user_creation_date):
-    """Fetch meaningful commit dates for a specific repository."""
+    """Fetch commit dates for a specific repository."""
     start_time = time.time()
     logger.info(f"Fetching commit dates for {owner}/{repo}")
     
@@ -199,25 +165,16 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
             json={"query": '''
                 query($owner: String!, $repo: String!, $username: String!, $cursor: String) {
                     repository(owner: $owner, name: $repo) {
-                        defaultBranchRef {
-                            target {
-                                ... on Commit {
-                                    history(first: 100, after: $cursor, author: {username: $username}) {
-                                        pageInfo {
-                                            endCursor
-                                            hasNextPage
-                                        }
-                                        edges {
-                                            node {
-                                                committedDate
-                                                message
-                                                author {
-                                                    user {
-                                                        login
-                                                    }
-                                                }
-                                            }
-                                        }
+                        createdAt
+                        object(expression: "HEAD") {
+                            ... on Commit {
+                                history(first: 100, after: $cursor, author: {username: $username}) {
+                                    pageInfo {
+                                        endCursor
+                                        hasNextPage
+                                    }
+                                    nodes {
+                                        committedDate
                                     }
                                 }
                             }
@@ -235,16 +192,16 @@ def fetch_commit_dates(owner, repo, username, user_creation_date):
         if 'errors' in data:
             raise Exception(f"GitHub API error: {data['errors']}")
 
-        commit_history = data['data']['repository']['defaultBranchRef']['target']['history']
+        repo_created_at = datetime.strptime(data['data']['repository']['createdAt'], "%Y-%m-%dT%H:%M:%SZ")
+        commit_history = data['data']['repository']['object']['history']
         
-        for edge in commit_history['edges']:
-            commit = edge['node']
-            commit_date = datetime.strptime(commit['committedDate'], "%Y-%m-%dT%H:%M:%SZ").date()
+        for node in commit_history['nodes']:
+            commit_date = datetime.strptime(node['committedDate'], "%Y-%m-%dT%H:%M:%SZ")
             
-            # Only count commits after user creation and with meaningful messages
-            if (commit_date >= user_creation_date and 
-                is_meaningful_commit(commit['message'])):
-                commit_dates.add(commit_date)
+            # Only count commits after both user creation and repo creation
+            if (commit_date.date() >= user_creation_date and 
+                commit_date >= repo_created_at):
+                commit_dates.add(commit_date.strftime("%Y-%m-%d"))  # Use consistent date string format
 
         has_next_page = commit_history['pageInfo']['hasNextPage']
         cursor = commit_history['pageInfo']['endCursor']
@@ -284,7 +241,7 @@ def verify_github_contributions(username, threshold=120, years_back=3):
         
         # Filter dates within the specified years
         cutoff_date = datetime.now().date() - timedelta(days=years_back * 365)
-        filtered_dates = {date for date in unique_commit_dates if date >= cutoff_date}
+        filtered_dates = {date for date in unique_commit_dates if datetime.strptime(date, "%Y-%m-%d").date() >= cutoff_date}
         
         # Prepare verification result
         result = {

@@ -27,9 +27,12 @@ This is a simple web tool that helps you understand your GitHub commit activity 
 ### What's Being Counted?
 - Each day where you made at least one commit counts as a "commit day"
 - Multiple commits on the same day are counted as a single commit day
-- Only counts commits to repositories' default branches
+- Counts commits across all branches
 - Only includes commits where you are the author
-- Merge commits are included
+- Only counts commits that are:
+  - Made after your GitHub account was created
+  - Made after the repository was created
+  - Within the last 3 years
 - Currently NOT counting:
   - Pull requests
   - Issues
